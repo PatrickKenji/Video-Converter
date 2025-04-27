@@ -1,32 +1,45 @@
-# Conversor de Vídeo
+# Video Converter
 
-Um aplicativo simples para converter vídeos entre diferentes formatos.
+A modern, user-friendly video converter built with Python and Tkinter. Supports batch conversion, hardware acceleration (NVIDIA NVENC, Intel VAAPI), and maximum compatibility for MP4 output.
 
-## Requisitos
+## Features
+- Batch video conversion with queue management
+- Output formats: MP4, AVI, MOV, MKV, WEBM
+- Quality selection: Fast, Medium, High
+- Automatic hardware acceleration detection and fallback to CPU if unavailable
+- MP4 output optimized for maximum compatibility (profile high, level 4.1, yuv420p, keyframes)
+- Progress bar and status for each file
+- Modern dark-themed GUI
 
-- Python 3.x
-- Bibliotecas listadas em `requirements.txt`
+## Requirements
+- Python 3.8+
+- FFmpeg (must be installed and available in your PATH)
+- NVIDIA GPU (optional, for NVENC acceleration)
+- Intel GPU (optional, for VAAPI acceleration on Linux)
 
-## Instalação
+## Installation
+1. Install Python 3.8 or newer.
+2. Install FFmpeg and ensure it is in your system PATH.
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-1. Clone ou baixe este repositório
-2. Instale as dependências:
-```bash
-pip install -r requirements.txt
-```
+## Usage
+1. Run the application:
+   ```bash
+   python conversor_video.py
+   ```
+2. Add videos to the queue.
+3. Select output format and quality.
+4. Choose the output folder.
+5. Click "Start Conversion".
 
-## Como usar
+If hardware acceleration is not available, the converter will automatically use the CPU (libx264) for maximum compatibility.
 
-1. Execute o programa:
-```bash
-python conversor_video.py
-```
-
-2. Na interface gráfica:
-   - Clique em "Selecionar Vídeo" para escolher o vídeo que deseja converter
-   - Selecione o formato de saída desejado no menu suspenso
-   - Clique em "Selecionar Pasta de Saída" para escolher onde salvar o vídeo convertido
-   - Clique em "Converter" para iniciar a conversão
+## Notes
+- For best compatibility, MP4 files are encoded with profile high, level 4.1, yuv420p pixel format, and regular keyframes.
+- If you encounter issues with hardware acceleration, ensure your drivers and FFmpeg build support NVENC/VAAPI.
 
 ## Formatos suportados
 

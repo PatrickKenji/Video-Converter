@@ -1,10 +1,10 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from moviepy.editor import VideoFileClip
 import os
-from queue import Queue
 import threading
-import time
+import subprocess
+import re
+import sys
 
 class RoundedButton(tk.Canvas):
     def __init__(self, parent, text, command=None, radius=25, **kwargs):
@@ -12,7 +12,7 @@ class RoundedButton(tk.Canvas):
         self.command = command
         self.radius = radius
         
-        # Cores
+        # Cores atualizadas para o tema Radiance Ubuntu
         self.bg_color = "#2b2b2b"
         self.hover_color = "#3b3b3b"
         self.text_color = "white"
@@ -31,7 +31,7 @@ class RoundedButton(tk.Canvas):
         self.create_rounded_rect(0, 0, width, height, self.radius, fill=self.bg_color)
         
         # Adiciona o texto
-        self.create_text(width/2, height/2, text=text, fill=self.text_color, font=("Segoe UI", 10, "bold"))
+        self.create_text(width/2, height/2, text=text, fill=self.text_color, font=("Ubuntu", 10, "bold"))
         
     def create_rounded_rect(self, x1, y1, x2, y2, radius, **kwargs):
         points = [
@@ -60,30 +60,70 @@ class RoundedButton(tk.Canvas):
         if self.command:
             self.command()
 
+def get_video_duration(path):
+    """Retorna a duração do vídeo em segundos usando ffprobe."""
+    try:
+        result = subprocess.run([
+            'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1', path
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        return float(result.stdout.strip())
+    except Exception:
+        return 0
+
 class ConversorVideo:
     def __init__(self, root):
         self.root = root
         self.root.title("Conversor de Vídeo")
-        self.root.geometry("800x600")
+        self.root.geometry("1000x750")
         self.root.configure(bg="#1e1e1e")
         
-        # Configuração do estilo
+        # Configuração do estilo Radiance Ubuntu
         self.style = ttk.Style()
+        self.style.theme_use('clam')  # Usando clam como base para o tema Radiance
+        
+        # Configuração das cores e estilos
         self.style.configure("Dark.TFrame", background="#1e1e1e")
-        self.style.configure("Dark.TLabel", background="#1e1e1e", foreground="white")
-        self.style.configure("Dark.TCombobox", background="#2b2b2b", foreground="white")
-        self.style.configure("Dark.Treeview", background="#2b2b2b", foreground="white", fieldbackground="#2b2b2b")
-        self.style.configure("Dark.Treeview.Heading", background="#2b2b2b", foreground="black", font=("Segoe UI", 10, "bold"))
-        self.style.map("Dark.Treeview.Heading", background=[("active", "#3b3b3b")])
-        self.style.configure("Dark.Horizontal.TProgressbar", background="#00ff00", troughcolor="#2b2b2b")
+        self.style.configure("Dark.TLabel", 
+                           background="#1e1e1e", 
+                           foreground="white",
+                           font=("Ubuntu", 10))
+        self.style.configure("Dark.TCombobox", 
+                           background="#2b2b2b", 
+                           foreground="white",
+                           fieldbackground="#2b2b2b",
+                           arrowcolor="white",
+                           font=("Ubuntu", 10))
+        self.style.configure("Dark.Treeview", 
+                           background="#2b2b2b", 
+                           foreground="white", 
+                           fieldbackground="#2b2b2b",
+                           font=("Ubuntu", 10))
+        self.style.configure("Dark.Treeview.Heading", 
+                           background="#2b2b2b", 
+                           foreground="white", 
+                           font=("Ubuntu", 10, "bold"))
+        self.style.map("Dark.Treeview.Heading", 
+                      background=[("active", "#3b3b3b")])
+        self.style.configure("Dark.Horizontal.TProgressbar", 
+                           background="#00ff00", 
+                           troughcolor="#2b2b2b",
+                           borderwidth=0)
         
         # Variáveis
         self.caminho_saida = tk.StringVar()
         self.formato_saida = tk.StringVar(value="mp4")
+        self.qualidade = tk.StringVar(value="Rápido")  # Nova variável para qualidade
         self.fila_videos = []
         self.conversao_ativa = False
+        self.parar_conversao = False
+        self.lbl_video_atual = None
         self.progresso = 0
         self.video_atual = ""
+        self.process = None
+        
+        # Detectar hardware acceleration disponível
+        self.hw_accel = self.detectar_hardware_acceleration()
         
         # Frame principal
         self.frame = ttk.Frame(root, style="Dark.TFrame", padding=30)
@@ -93,34 +133,33 @@ class ConversorVideo:
         self.criar_widgets()
         
     def criar_widgets(self):
-        # Título
-        titulo = ttk.Label(self.frame, text="Conversor de Vídeo", 
-                         font=("Segoe UI", 20, "bold"), style="Dark.TLabel")
+        titulo = ttk.Label(self.frame, 
+                         text="Conversor de Vídeo", 
+                         font=("Ubuntu", 20, "bold"), 
+                         style="Dark.TLabel")
         titulo.pack(pady=(0, 20))
-        
-        # Frame para controles
         frame_controles = ttk.Frame(self.frame, style="Dark.TFrame")
         frame_controles.pack(fill='x', pady=10)
-        
-        # Botão para adicionar vídeos
-        btn_adicionar = RoundedButton(frame_controles, "Adicionar Vídeos", 
-                                    command=self.adicionar_videos,
-                                    width=200, height=40)
+        btn_adicionar = RoundedButton(frame_controles, "Adicionar Vídeos", command=self.adicionar_videos, width=200, height=40)
         btn_adicionar.pack(side='left', padx=(0, 10))
         
-        # Frame para formato de saída
+        # Frame para formato e qualidade
         frame_formato = ttk.Frame(frame_controles, style="Dark.TFrame")
         frame_formato.pack(side='left', padx=10)
         
-        lbl_formato = ttk.Label(frame_formato, text="Formato de saída:",
-                              style="Dark.TLabel")
+        # Label e combobox para formato
+        lbl_formato = ttk.Label(frame_formato, text="Formato de saída:", style="Dark.TLabel")
         lbl_formato.pack(side='left', padx=(0, 10))
-        
         formatos = ["mp4", "avi", "mov", "mkv", "webm"]
-        menu_formato = ttk.Combobox(frame_formato, textvariable=self.formato_saida,
-                                  values=formatos, state="readonly",
-                                  style="Dark.TCombobox")
-        menu_formato.pack(side='left')
+        menu_formato = ttk.Combobox(frame_formato, textvariable=self.formato_saida, values=formatos, state="readonly", style="Dark.TCombobox")
+        menu_formato.pack(side='left', padx=(0, 10))
+        
+        # Label e combobox para qualidade
+        lbl_qualidade = ttk.Label(frame_formato, text="Qualidade:", style="Dark.TLabel")
+        lbl_qualidade.pack(side='left', padx=(0, 10))
+        qualidades = ["Rápido", "Média", "Alta"]
+        menu_qualidade = ttk.Combobox(frame_formato, textvariable=self.qualidade, values=qualidades, state="readonly", style="Dark.TCombobox")
+        menu_qualidade.pack(side='left')
         
         # Botão para selecionar pasta de saída
         btn_saida = RoundedButton(frame_controles, "Selecionar Pasta de Saída",
@@ -154,6 +193,13 @@ class ConversorVideo:
         self.lbl_video_atual = ttk.Label(self.frame, text="", style="Dark.TLabel")
         self.lbl_video_atual.pack(pady=(0, 5))
         
+        # Barra de progresso
+        self.progress_bar = ttk.Progressbar(self.frame, orient="horizontal", length=100, mode="determinate", style="Dark.Horizontal.TProgressbar")
+        self.progress_bar.pack(fill='x', pady=(0, 10))
+        
+        self.lbl_progresso = ttk.Label(self.frame, text="", style="Dark.TLabel")
+        self.lbl_progresso.pack(pady=(0, 5))
+        
         # Frame para botões de controle
         frame_botoes = ttk.Frame(self.frame, style="Dark.TFrame")
         frame_botoes.pack(fill='x', pady=10)
@@ -171,10 +217,17 @@ class ConversorVideo:
         btn_limpar.pack(side='left', padx=10)
         
         # Botão de conversão
-        btn_converter = RoundedButton(frame_botoes, "Iniciar Conversão",
+        self.btn_converter = RoundedButton(frame_botoes, "Iniciar Conversão",
                                     command=self.iniciar_conversao,
                                     width=200, height=40)
-        btn_converter.pack(side='right', padx=10)
+        self.btn_converter.pack(side='right', padx=10)
+        
+        # Botão para parar conversão
+        self.btn_parar = RoundedButton(frame_botoes, "Parar Conversão",
+                                    command=self.parar_conversao_processo,
+                                    width=200, height=40)
+        self.btn_parar.pack(side='right', padx=10)
+        self.btn_parar.configure(state='disabled')  # Inicialmente desabilitado
         
     def atualizar_progresso(self, progresso):
         self.progresso = progresso
@@ -217,6 +270,41 @@ class ConversorVideo:
         self.fila_videos[index]["status"] = status
         self.tree.set(self.tree.get_children()[index], "status", status)
         
+    def detectar_hardware_acceleration(self):
+        """Detecta se há suporte a hardware acceleration disponível."""
+        try:
+            result = subprocess.run(['ffmpeg', '-encoders'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if 'h264_nvenc' in result.stdout:
+                return 'nvenc'
+            # VAAPI só em sistemas Linux
+            if sys.platform != 'win32' and 'h264_vaapi' in result.stdout:
+                return 'vaapi'
+            return None
+        except Exception:
+            return None
+
+    def get_bitrates(self):
+        """Retorna os bitrates de vídeo e áudio baseados na qualidade selecionada."""
+        qualidade = self.qualidade.get()
+        if qualidade == "Alta":
+            return '5000k', '256k'
+        elif qualidade == "Média":
+            return '2500k', '192k'
+        else:  # Rápido
+            return '1500k', '128k'
+        
+    def parar_conversao_processo(self):
+        if self.conversao_ativa and self.process:
+            self.parar_conversao = True
+            self.process.terminate()
+            self.atualizar_status(self.fila_videos.index(self.video_atual), "Interrompido")
+            self.conversao_ativa = False
+            self.btn_converter.configure(state='normal')
+            self.btn_parar.configure(state='disabled')
+            self.lbl_video_atual.config(text="Conversão interrompida")
+            self.progress_bar["value"] = 0
+            self.lbl_progresso.config(text="")
+
     def converter_video(self, index):
         if not self.caminho_saida.get():
             messagebox.showerror("Erro", "Por favor, selecione a pasta de saída")
@@ -224,68 +312,111 @@ class ConversorVideo:
             
         video_info = self.fila_videos[index]
         try:
-            # Atualiza status para "Convertendo"
             self.atualizar_status(index, "Convertendo...")
-            self.video_atual = os.path.basename(video_info["caminho"])
-            self.lbl_video_atual.config(text=f"Convertendo: {self.video_atual}")
+            self.video_atual = video_info
+            self.lbl_video_atual.config(text=f"Convertendo: {os.path.basename(video_info['caminho'])}")
             self.root.update_idletasks()
-            
-            # Carrega o vídeo
-            video = VideoFileClip(video_info["caminho"])
-            
-            # Define o nome do arquivo de saída
             nome_arquivo = os.path.splitext(os.path.basename(video_info["caminho"]))[0]
-            caminho_completo = os.path.join(
-                self.caminho_saida.get(),
-                f"{nome_arquivo}.{self.formato_saida.get()}"
-            )
-            
-            # Estimar tempo de conversão (simples: assume 1x tempo do vídeo)
-            tempo_estimado = int(video.duration)
-            inicio = time.time()
-            
-            def atualizar_tempo():
-                while True:
-                    decorrido = int(time.time() - inicio)
-                    restante = max(0, tempo_estimado - decorrido)
-                    mins, secs = divmod(restante, 60)
-                    tempo_str = f"{mins:02d}:{secs:02d}"
-                    self.atualizar_status(index, f"Convertendo... Tempo estimado: {tempo_str}")
-                    self.root.update_idletasks()
-                    if restante <= 0 or not self.conversao_ativa:
+            pasta_saida = self.caminho_saida.get().replace('\\', '/').replace('\\', '/')
+            caminho_completo = os.path.join(pasta_saida, f"{nome_arquivo}.{self.formato_saida.get()}").replace('\\', '/').replace('\\', '/')
+            v_bitrate, a_bitrate = self.get_bitrates()
+            duracao = get_video_duration(video_info["caminho"])
+
+            def run_ffmpeg(cmd):
+                print('Comando FFmpeg:', ' '.join(cmd))
+                self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+                tempo_atual = 0
+                ffmpeg_output = []
+                for line in self.process.stdout:
+                    ffmpeg_output.append(line)
+                    if self.parar_conversao:
+                        self.process.terminate()
                         break
-                    time.sleep(1)
-            
-            t = threading.Thread(target=atualizar_tempo, daemon=True)
-            t.start()
-            
-            # Converte o vídeo
-            video.write_videofile(
-                caminho_completo,
-                threads=4,
-                preset='fast',
-                bitrate='1500k',
-                audio_bitrate='128k'
-            )
-            
-            # Atualiza status para "Concluído"
-            self.atualizar_status(index, "Concluído")
-            self.lbl_video_atual.config(text="")
-            
+                    if 'out_time_ms=' in line:
+                        try:
+                            out_time_ms = int(line.split('=')[1].strip())
+                            tempo_atual = out_time_ms / 1000000
+                            if duracao > 0:
+                                progresso = (tempo_atual / duracao) * 100
+                                self.progress_bar["value"] = progresso
+                                self.lbl_progresso.config(text=f"Progresso: {int(progresso)}%  ({int(tempo_atual)}/{int(duracao)}s)")
+                                self.root.update_idletasks()
+                        except (ValueError, IndexError):
+                            continue
+                self.process.wait()
+                return ffmpeg_output
+
+            # Primeira tentativa: usar NVENC se disponível
+            cmd = ['ffmpeg', '-y', '-i', video_info["caminho"]]
+            nvenc_usado = False
+            if self.hw_accel == 'nvenc':
+                cmd.extend(['-c:v', 'h264_nvenc', '-preset', 'p1'])
+                nvenc_usado = True
+            elif self.hw_accel == 'vaapi' and sys.platform != 'win32':
+                cmd.extend(['-vaapi_device', '/dev/dri/renderD128', '-c:v', 'h264_vaapi'])
+            else:
+                cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast'])
+            # Parâmetros de compatibilidade
+            cmd.extend([
+                '-profile:v', 'high',
+                '-level', '4.1',
+                '-pix_fmt', 'yuv420p',
+                '-g', '48',
+                '-b:v', v_bitrate,
+                '-c:a', 'aac',
+                '-b:a', a_bitrate,
+                '-movflags', '+faststart',
+                '-progress', 'pipe:1',
+                caminho_completo
+            ])
+            ffmpeg_output = run_ffmpeg(cmd)
+
+            # Se NVENC foi usado e falhou, tenta fallback para libx264
+            if nvenc_usado and (not os.path.exists(caminho_completo) or os.path.getsize(caminho_completo) == 0 or any('h264_nvenc' in l and ('error' in l.lower() or 'not supported' in l.lower() or 'no capable devices' in l.lower()) for l in ffmpeg_output)):
+                # Remove arquivo vazio/corrompido
+                if os.path.exists(caminho_completo):
+                    try:
+                        os.remove(caminho_completo)
+                    except:
+                        pass
+                # Tenta novamente com libx264 (sem popup)
+                cmd2 = ['ffmpeg', '-y', '-i', video_info["caminho"], '-c:v', 'libx264', '-preset', 'ultrafast',
+                        '-profile:v', 'high', '-level', '4.1', '-pix_fmt', 'yuv420p', '-g', '48',
+                        '-b:v', v_bitrate, '-c:a', 'aac', '-b:a', a_bitrate, '-movflags', '+faststart', '-progress', 'pipe:1', caminho_completo]
+                ffmpeg_output = run_ffmpeg(cmd2)
+
+            if not self.parar_conversao:
+                if os.path.exists(caminho_completo) and os.path.getsize(caminho_completo) > 0:
+                    self.progress_bar["value"] = 100
+                    self.lbl_progresso.config(text="Progresso: 100%")
+                    self.atualizar_status(index, "Concluído")
+                    self.lbl_video_atual.config(text="")
+                else:
+                    messagebox.showerror("Erro FFmpeg", "Arquivo de saída não foi criado ou está vazio.\n\nSaída do FFmpeg:\n" + ''.join(ffmpeg_output)[-2000:])
+                    raise Exception("Arquivo de saída não foi criado ou está vazio. Veja detalhes no popup.")
         except Exception as e:
-            # Atualiza status para "Erro"
             self.atualizar_status(index, f"Erro: {str(e)}")
             self.lbl_video_atual.config(text="")
-            
-        finally:
-            if 'video' in locals():
-                video.close()
-                
+            self.progress_bar["value"] = 0
+            self.lbl_progresso.config(text="")
+            if os.path.exists(caminho_completo):
+                try:
+                    os.remove(caminho_completo)
+                except:
+                    pass
+
     def processar_fila(self):
+        self.parar_conversao = False
         for i in range(len(self.fila_videos)):
+            if self.parar_conversao:
+                break
             if self.fila_videos[i]["status"] == "Na fila":
                 self.converter_video(i)
         self.conversao_ativa = False
+        self.btn_converter.configure(state='normal')
+        self.btn_parar.configure(state='disabled')
+        self.progress_bar["value"] = 0
+        self.lbl_progresso.config(text="")
         
     def iniciar_conversao(self):
         if not self.fila_videos:
@@ -299,6 +430,8 @@ class ConversorVideo:
             return
         if not self.conversao_ativa:
             self.conversao_ativa = True
+            self.btn_converter.configure(state='disabled')
+            self.btn_parar.configure(state='normal')
             threading.Thread(target=self.processar_fila, daemon=True).start()
 
 if __name__ == "__main__":
