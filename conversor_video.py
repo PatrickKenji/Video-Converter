@@ -324,7 +324,21 @@ class ConversorVideo:
 
             def run_ffmpeg(cmd):
                 print('Comando FFmpeg:', ' '.join(cmd))
-                self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+                if sys.platform == "win32":
+                    self.process = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        universal_newlines=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                else:
+                    self.process = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        universal_newlines=True
+                    )
                 tempo_atual = 0
                 ffmpeg_output = []
                 for line in self.process.stdout:
